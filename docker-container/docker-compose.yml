@@ -1,0 +1,84 @@
+services:
+  web-client:
+    image: nginx:alpine
+    container_name: web-client
+    ports:
+      - "80:80"
+    volumes:
+      - ./web-client:/usr/share/nginx/html
+      - ./nginx/conf.d/default.conf:/etc/nginx/conf.d/default.conf
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:6.0
+    container_name: mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ADMIN_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ADMIN_PASS:-secureAdmin123}
+      MONGO_INITDB_DATABASE: ${MONGO_APP_DB:-myapp}
+    ports: # open for develop
+      - "27017:27017"
+    volumes:
+      - ./mongo/mongodb_data:/data/db
+      - ./mongo/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: |
+        mongosh --username ${MONGO_ADMIN_USER:-admin} \
+                 --password ${MONGO_ADMIN_PASS:-secureAdmin123} \
+                 --authenticationDatabase admin \
+                 --eval "db.runCommand({ping:1})"
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  mongo-express:
+    image: mongo-express
+    container_name: mongo-express
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_MONGODB_PORT: 27017
+      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_ADMIN_USER:-admin}
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_ADMIN_PASS:-secureAdmin123}
+      ME_CONFIG_BASICAUTH_USERNAME: ${ME_USER:-expressuser}
+      ME_CONFIG_BASICAUTH_PASSWORD: ${ME_PASS:-expresspass123}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  kotlin-server:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: app
+ #   ports:
+ #     - "8080:8080"
+    environment:
+      MONGODB_HOST: mongodb
+      MONGODB_PORT: 27017
+      MONGODB_DATABASE: ${MONGO_APP_DB:-myapp}
+      MONGODB_USERNAME: ${MONGO_ADMIN_USER:-admin}
+      MONGODB_PASSWORD: ${MONGO_ADMIN_PASS:-secureAdmin123}
+      SERVER_PORT: 8080
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - app-network
+    #restart: unless-stopped
+
+volumes:
+  mongodb_data:
+
+networks:
+  app-network:
+    driver: bridge
